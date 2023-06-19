@@ -79,6 +79,9 @@ def simplify_pattern(curve, decimation=256, sos=butter(4, 0.01, output='sos')):
               `decimation`).
             - sos (numpy.array): signal filter in the `sos` form (refer to
               scipy.signal for more details).
+        
+        Returns
+            A numpy array containing the processed curve (filtered and decimated).
     """
     envelop_curve = np.abs(hilbert(curve))
     filtered_curve = sosfiltfilt(sos, envelop_curve)
@@ -86,13 +89,14 @@ def simplify_pattern(curve, decimation=256, sos=butter(4, 0.01, output='sos')):
     decimated_curve = filtered_curve.compress(indexes)
     return decimated_curve
 
-def detect_peaks(correlation, threshold=0.9, min_gap=1, keep_last=True):
+def detect_peaks(correlation, threshold=0.9, min_gap=1, keep='max'):
     """Detects peaks in a correlation result.
     
        Consecutive high values are omitted if the gap between the index is
        smaller than `min_gap`.
-       If `keep_last` is set to True, the last peak of successive close peaks
-       is kept otherwise the first is kept.
+       The `keep` argument can take different values depending on which sample
+       should be kept in case more than a single sample reach the threshold
+       consecutively.
        
        Args
            - correlation (numpy.array): the correlation result.
@@ -100,17 +104,50 @@ def detect_peaks(correlation, threshold=0.9, min_gap=1, keep_last=True):
        Kwargs
            - threshold (float): the threshold above which a peak can be detected.
            - min_gap (int): the minimum distance between two peaks (default to 1).
-           - keep_last (bool): if True the last peak of a series is kept otherwise
-             the first one is selected.
+           - keep (str): can be one in ('max','first','last') which respectively
+             keeps the sample corresponding to the maximum value of the interval,
+             keeps the first sample from the interval, keeps the last sample from
+             the interval.
+       
+       Returns
+           A list of peak abscissas.
        """
     detected_peaks = np.where(correlation>threshold)[0]
     if len(detected_peaks) == 0:
         return []
     else:
+        current_max = 0
         res = [detected_peaks[0]]
         for p in detected_peaks[1:]:
             if (p-res[-1]) > min_gap:
                 res.append(p)
-            elif keep_last:
-                res[-1] = p
+                current_max = correlation[p]
+            else: # we are in an interval of consecutive samples reaching threshold
+                if keep == 'last':
+                    res[-1] = p
+                elif keep == 'max' and correlation[p] > current_max:
+                    res[-1] = p
+                    current_max = correlation[p]
     return res
+
+def detect_first_peak(pcc,peaks,wrange=20):
+    """Compute the first (undetected) peak when he is smaller than the others.
+
+       This function compute the expected position of the first peak (by taking the minimum interval size
+       based on the peaks parameter). Then, the maximum correlation is looked for in a window of width 2*wrange.
+
+        Args
+            - pcc (numpy.array): cross-correlation vector in which we wish to detect peaks.
+            - peaks (list): list of detected peaks.
+        
+        Kwargs
+            - wrange (int): range around the expected peak position to look for higher correlations.
+        
+        Returns
+            
+    """
+    peaks_np = np.array(peaks)
+    min_interval = np.min(peaks_np[1:] - peaks_np[:-1])
+    window = np.abs(pcc)[peaks[0]-min_interval-wrange:peaks[0]-min_interval+wrange]
+    first_peak = peaks[0]-min_interval-wrange+np.argmax(window)
+    return first_peak
